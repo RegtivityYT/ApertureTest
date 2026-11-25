@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aperture Chromebook Check</title>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--panel:#192330;--line:#2b3a4c;--text:#e8eef5;--muted:#a7b5c5;--accent:#72b7ff;--good:#69d39a;--warn:#ffcc70}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:850px;margin:auto;padding:22px 16px 40px}h1{font-size:1.55rem;margin:0 0 6px}h2{font-size:1.05rem;margin:0 0 12px}.sub,.muted{color:var(--muted)}.sub{margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:12px}
+.metric{font-size:1.55rem;font-weight:700;letter-spacing:-.03em}.label{font-size:.85rem;color:var(--muted)}.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:3px 9px;color:var(--muted);font-size:.78rem}
+button{background:#245d91;color:white;border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:650;cursor:pointer;margin:4px 6px 4px 0}button.secondary{background:#344456}button:disabled{opacity:.55;cursor:wait}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0c1118;padding:12px;border-radius:8px;color:#cbd8e6;font-size:.83rem}
+.note{border-left:3px solid var(--accent);padding:8px 12px;background:#142333;color:#cbd8e6;border-radius:4px;margin:12px 0}
+.good{color:var(--good)}.warn{color:var(--warn)}footer{margin-top:18px;color:var(--muted);font-size:.82rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Aperture · Chromebook check</h1>
+  <p class="sub">A small, local diagnostic page for the Chromebook. It does not contact FivePlay or run a GTA V workload.</p>
+
+  <div class="grid">
+    <section class="card"><div class="label">Reported device memory</div><div class="metric" id="ram">Checking…</div><div class="label">Approximate browser hint, not live free RAM</div></section>
+    <section class="card"><div class="label">Logical CPU threads</div><div class="metric" id="cpu">Checking…</div><div class="label">Browser-reported concurrency</div></section>
+    <section class="card"><div class="label">JavaScript heap used</div><div class="metric" id="heap">Checking…</div><div class="label" id="heapDetail">Chromium may expose this value</div></section>
+    <section class="card"><div class="label">WebGL</div><div class="metric" id="webgl">Checking…</div><div class="label" id="webglDetail">Graphics API availability</div></section>
+  </div>
+
+  <section class="card">
+    <h2>Browser and page context</h2>
+    <pre id="details">Collecting…</pre>
+    <div class="note">Important: web pages cannot reliably read ChromeOS's live available RAM. The 1.99 GB figure you see in ChromeOS remains the authoritative baseline. This page reports browser-visible hints and JavaScript memory only.</div>
+  </section>
+
+  <section class="card">
+    <h2>Short CPU responsiveness test</h2>
+    <p class="muted">Runs a brief JavaScript calculation for up to 3 seconds. It is not a GTA V benchmark and should not significantly heat or stress the Chromebook.</p>
+    <button id="run">Run 3-second test</button>
+    <div class="metric" id="cpuResult">Not run</div>
+    <div class="label" id="cpuInfo">Run once in Chrome, then again inside Aperture for comparison.</div>
+  </section>
+
+  <section class="card">
+    <h2>Save results</h2>
+    <p class="muted">Download a text report to compare normal Chrome against Aperture. Take note of ChromeOS available RAM separately.</p>
+    <button id="save">Download diagnostic report</button>
+    <button class="secondary" id="refresh">Refresh readings</button>
+    <div class="label" id="status" aria-live="polite"></div>
+  </section>
+  <footer>Privacy: all checks run in this page. No analytics, external scripts, external images, or network requests are included.</footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const mb = n => (n / 1048576).toFixed(1) + " MB";
+  let lastTest = null;
+
+  function getWebGL() {
+    const canvas = document.createElement("canvas");
+    let gl = null, version = "Unavailable", renderer = "Not exposed";
+    try {
+      gl = canvas.getContext("webgl2") || canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (gl) {
+        version = gl instanceof WebGL2RenderingContext ? "WebGL 2" : "WebGL 1";
+        const ext = gl.getExtension("WEBGL_debug_renderer_info");
+        if (ext) renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || renderer;
+      }
+    } catch (_) {}
+    return {version, renderer};
+  }
+
+  function snapshot() {
+    const mem = navigator.deviceMemory;
+    const heap = performance.memory || null;
+    const gl = getWebGL();
+    $("ram").textContent = mem ? mem + " GB (approx.)" : "Not exposed";
+    $("cpu").textContent = navigator.hardwareConcurrency || "Not exposed";
+    $("heap").textContent = heap ? mb(heap.usedJSHeapSize) : "Not exposed";
+    $("heapDetail").textContent = heap ? "Heap limit: " + mb(heap.jsHeapSizeLimit) : "This browser does not expose performance.memory";
+    $("webgl").textContent = gl.version;
+    $("webglDetail").textContent = gl.renderer;
+    const info = {
+      time: new Date().toISOString(),
+      page: location.href,
+      userAgent: navigator.userAgent,
+      platform: navigator.platform || "Not exposed",
+      deviceMemoryGBApprox: mem || "Not exposed",
+      logicalCpuThreads: navigator.hardwareConcurrency || "Not exposed",
+      jsHeap: heap ? {
+        usedMB: +(heap.usedJSHeapSize / 1048576).toFixed(1),
+        totalMB: +(heap.totalJSHeapSize / 1048576).toFixed(1),
+        limitMB: +(heap.jsHeapSizeLimit / 1048576).toFixed(1)
+      } : "Not exposed",
+      webgl: gl,
+      crossOriginIsolated: window.crossOriginIsolated,
+      sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
+      secureContext: window.isSecureContext
+    };
+    $("details").textContent = JSON.stringify(info, null, 2);
+    return info;
+  }
+
+  $("run").addEventListener("click", () => {
+    const btn = $("run"); btn.disabled = true; $("cpuResult").textContent = "Running…";
+    setTimeout(() => {
+      const start = performance.now(), duration = 3000;
+      let iterations = 0, x = 0.123456789;
+      while (performance.now() - start < duration) {
+        for (let i = 0; i < 10000; i++) {
+          x = Math.sin(x + i) * Math.cos(x - i) + 1.000001;
+        }
+        iterations += 10000;
+      }
+      const elapsed = performance.now() - start;
+      lastTest = {elapsedMs: +elapsed.toFixed(1), iterations, operationsPerSecond: Math.round(iterations / (elapsed / 1000)), checksum: x};
+      $("cpuResult").textContent = lastTest.operationsPerSecond.toLocaleString() + " iterations/sec";
+      $("cpuInfo").textContent = "Completed in " + elapsed.toFixed(0) + " ms. This is only a rough comparison; browser load affects results.";
+      btn.disabled = false;
+    }, 30);
+  });
+
+  $("save").addEventListener("click", () => {
+    const report = { ...snapshot(), cpuTest: lastTest, note: "This page cannot measure ChromeOS live free RAM. Record that separately from ChromeOS diagnostics." };
+    const blob = new Blob([JSON.stringify(report, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "aperture-chromebook-check.json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    $("status").textContent = "Report download requested.";
+  });
+  $("refresh").addEventListener("click", () => { snapshot(); $("status").textContent = "Readings refreshed."; });
+  snapshot();
+  setInterval(() => {
+    const heap = performance.memory;
+    if (heap) $("heap").textContent = mb(heap.usedJSHeapSize);
+  }, 2000);
+})();
+</script>
+</body>
+</html>
